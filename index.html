@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Quran Memorisation Tracker</title>
+
+<!--
+═══════════════════════════════════════════════════════════════
+  QURAN MEMORISATION TRACKER — Google Drive Edition
+  ---------------------------------------------------------------
+  SETUP (one-time, ~10 minutes):
+
+  1. Go to https://console.cloud.google.com
+  2. Create a new project (e.g. "Quran Tracker")
+  3. Go to "APIs & Services" → "Library"
+     - Enable "Google Drive API"
+     - Enable "Google Picker API"
+  4. Go to "APIs & Services" → "Credentials"
+     - Click "Create Credentials" → "OAuth 2.0 Client ID"
+     - Application type: "Web application"
+     - Authorised JavaScript origins: add  file://  AND  http://localhost
+     - Copy the Client ID and paste it below as CLIENT_ID
+  5. On the same Credentials page:
+     - Click "Create Credentials" → "API Key"
+     - Copy it and paste below as API_KEY
+  6. Save this file and open it in your browser. Done!
+
+  Your data is saved as "quran-tracker-data.json" in your
+  Google Drive. It will be there on any device you sign in to.
+═══════════════════════════════════════════════════════════════
+-->
+
+<script>
+  // ── PASTE YOUR CREDENTIALS HERE ──────────────────────────────
+  const CLIENT_ID = "YOUR_CLIENT_ID_HERE.apps.googleusercontent.com";
+  const API_KEY   = "YOUR_API_KEY_HERE";
+  // ─────────────────────────────────────────────────────────────
+
+  const SCOPES    = "https://www.googleapis.com/auth/drive.file";
+  const FILE_NAME = "quran-tracker-data.json";
+  const DISC_DOC  = "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest";
+</script>
+
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Segoe UI', sans-serif; background: #f8f7f4; color: #1a1a1a; }
+
+/* ── Header ── */
+#header {
+  background: linear-gradient(135deg, #1a3c2e 0%, #2d6a4f 100%);
+  color: white; padding: 22px 20px; text-align: center;
+}
+#header .bismillah { font-size: 15px; letter-spacing: 3px; opacity: .7; margin-bottom: 4px; }
+#header h1 { font-size: 22px; font-weight: 700; margin-bottom: 2px; }
+#header .sub { font-size: 13px; opacity: .75; }
+#progress-wrap { margin: 18px auto 0; max-width: 500px; }
+#progress-labels { display:flex; justify-content:space-between; font-size:12px; opacity:.85; margin-bottom:6px; }
+#progress-track { background: rgba(255,255,255,.2); border-radius: 8px; height: 10px; }
+#progress-bar { background: #86efac; border-radius: 8px; height: 10px; width: 0%; transition: width .4s; }
+#stats { display:flex; gap:16px; justify-content:center; margin-top:10px; font-size:12px; flex-wrap:wrap; }
+
+/* ── Auth bar ── */
+#auth-bar {
+  background: #fff; border-bottom: 1px solid #e5e7eb;
+  padding: 10px 20px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+}
+#auth-bar button {
+  padding: 6px 14px; border-radius: 6px; border: none; cursor: pointer; font-size: 13px; font-weight: 600;
+}
+#btn-signin  { background: #2d6a4f; color: white; }
+#btn-signout { background: #f3f4f6; color: #374151; border: 1px solid #d1d5db; }
+#btn-save    { background: #1d4ed8; color: white; }
+#btn-load    { background: #f3f4f6; color: #374151; border: 1px solid #d1d5db; }
+#auth-status { font-size: 13px; color: #6b7280; }
+#save-status { font-size: 12px; color: #10b981; margin-left: auto; }
+
+/* ── Controls ── */
+#controls {
+  background: white; border-bottom: 1px solid #e5e7eb;
+  padding: 10px 20px; display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:space-between;
+}
+.filter-btn, .ctrl-btn {
+  padding: 5px 12px; border-radius: 20px; border: 1px solid #d1d5db;
+  font-size: 12px; cursor: pointer; background: white; color: #374151;
+}
+.filter-btn.active { background: #2d6a4f; color: white; border-color: #2d6a4f; }
+.ctrl-btn.danger   { background: #fff1f1; color: #b91c1c; border-color: #fca5a5; }
+.ctrl-btn.juz      { border-radius: 6px; }
+
+/* ── Legend ── */
+#legend {
+  padding: 8px 20px; display:flex; gap:14px; flex-wrap:wrap;
+  font-size: 12px; color: #6b7280; background: #fafaf9; border-bottom: 1px solid #e5e7eb; align-items:center;
+}
+.dot { width:10px; height:10px; border-radius:50%; display:inline-block; }
+
+/* ── Main ── */
+#main { padding: 16px 20px; max-width: 960px; margin: 0 auto; }
+
+/* ── Surah row ── */
+.surah-card { border-radius: 10px; border: 1px solid #e5e7eb; overflow:hidden; margin-bottom:6px; }
+.surah-card.expanded { border-color: #2d6a4f; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+.surah-header {
+  display: grid; grid-template-columns: 36px 1fr auto;
+  align-items: center; gap: 10px; padding: 10px 14px; cursor: pointer;
+}
+.surah-num  { font-weight:700; font-size:13px; color:#6b7280; text-align:center; }
+.surah-name { font-weight:700; font-size:14px; }
+.surah-arabic { font-size:15px; color:#374151; font-family:serif; }
+.surah-meta   { font-size:11px; color:#6b7280; }
+.surah-badge  { font-size:11px; border-radius:10px; padding:1px 7px; }
+.badge-complete  { background:#10b981; color:white; }
+.badge-learning  { background:#fef3c7; color:#92400e; }
+.badge-reviewing { background:#dbeafe; color:#1e40af; }
+.mini-bar-track { flex:1; background:#e5e7eb; border-radius:4px; height:5px; }
+.mini-bar-fill  { background:#10b981; border-radius:4px; height:5px; transition:width .3s; }
+
+/* ── Verse panel ── */
+.verse-panel { background:#f9fafb; border-top:1px solid #e5e7eb; padding:14px 16px; }
+.quick-actions { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; align-items:center; }
+.quick-actions span { font-size:12px; font-weight:600; color:#374151; margin-right:4px; }
+.qa-btn {
+  padding: 4px 10px; border-radius:6px; border:1px solid #d1d5db;
+  font-size:12px; cursor:pointer;
+}
+.range-row {
+  display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; align-items:center;
+  background:white; border:1px solid #e5e7eb; border-radius:8px; padding:8px 12px;
+}
+.range-row span { font-size:12px; color:#6b7280; }
+.range-row input, .range-row select {
+  padding:3px 6px; border:1px solid #d1d5db; border-radius:5px; font-size:12px;
+}
+.range-row input { width:56px; }
+.apply-btn {
+  padding:4px 12px; border-radius:6px; border:none;
+  background:#2d6a4f; color:white; font-size:12px; cursor:pointer;
+}
+.verse-grid { display:flex; flex-wrap:wrap; gap:5px; }
+.verse-tile {
+  width:34px; height:34px; border-radius:6px; border:2px solid;
+  display:flex; align-items:center; justify-content:center;
+  font-size:11px; font-weight:600; color:#374151;
+  cursor:pointer; transition:transform .1s; user-select:none;
+}
+.verse-tile:hover { transform:scale(1.15); }
+.verse-summary { margin-top:10px; display:flex; gap:12px; font-size:11px; color:#6b7280; flex-wrap:wrap; }
+
+/* ── Juz header ── */
+.juz-header { display:flex; align-items:center; gap:10px; border-bottom:2px solid #2d6a4f; padding-bottom:6px; margin-bottom:10px; }
+.juz-title { font-weight:700; font-size:15px; color:#2d6a4f; }
+.juz-meta  { font-size:12px; color:#6b7280; }
+.juz-bar-track { flex:1; background:#e5e7eb; border-radius:4px; height:6px; }
+.juz-bar-fill  { background:#10b981; border-radius:4px; height:6px; }
+.juz-pct { font-size:12px; color:#2d6a4f; font-weight:600; }
+.juz-section { margin-bottom:24px; }
+
+footer { text-align:center; padding:20px; font-size:12px; color:#9ca3af; }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <div class="bismillah">بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ</div>
+  <h1>Quran Memorisation Tracker</h1>
+  <div class="sub">Track by surah and verse · 114 Surahs · 6,236 Verses</div>
+  <div id="progress-wrap">
+    <div id="progress-labels"><span id="pl-verses">0 / 6,236 verses memorised</span><span id="pl-pct">0%</span></div>
+    <div id="progress-track"><div id="progress-bar"></div></div>
+    <div id="stats">
+      <span id="stat-complete">✅ 0 surahs complete</span>
+      <span id="stat-progress">📖 0 in progress</span>
+      <span id="stat-remaining">📚 114 not started</span>
+    </div>
+  </div>
+</div>
+
+<div id="auth-bar">
+  <button id="btn-signin">🔑 Sign in with Google</button>
+  <button id="btn-signout" style="display:none">Sign Out</button>
+  <span id="auth-status">Not signed in — data saves to browser only</span>
+  <button id="btn-save" style="display:none">💾 Save to Drive</button>
+  <button id="btn-load" style="display:none">📂 Load from Drive</button>
+  <span id="save-status"></span>
+</div>
+
+<div id="controls">
+  <div id="filter-btns" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;">
+    <button class="ctrl-btn juz" id="btn-view">📂 Group by Juz</button>
+    <button class="ctrl-btn danger" id="btn-reset">🔄 Reset All</button>
+  </div>
+</div>
+
+<div id="legend">
+  <strong style="color:#374151">Verse status:</strong>
+  <span><span class="dot" style="background:#9ca3af"></span> Not Started</span>
+  <span><span class="dot" style="background:#f59e0b"></span> In Progress</span>
+  <span><span class="dot" style="background:#10b981"></span> Memorised</span>
+  <span><span class="dot" style="background:#3b82f6"></span> Reviewing</span>
+  <span style="margin-left:auto;color:#9ca3af">Click surah to expand · click verse to cycle status</span>
+</div>
+
+<div id="main"></div>
+<footer>May Allah make your memorisation easy. 🤲</footer>
+
+<script>
+// ── Data ────────────────────────────────────────────────────────────────────
+const SURAHS = [
+  {n:1,name:"Al-Fatihah",ar:"الفاتحة",v:7,j:1},{n:2,name:"Al-Baqarah",ar:"البقرة",v:286,j:1},
+  {n:3,name:"Aali Imran",ar:"آل عمران",v:200,j:3},{n:4,name:"An-Nisa",ar:"النساء",v:176,j:4},
+  {n:5,name:"Al-Maidah",ar:"المائدة",v:120,j:6},{n:6,name:"Al-Anam",ar:"الأنعام",v:165,j:7},
+  {n:7,name:"Al-Araf",ar:"الأعراف",v:206,j:8},{n:8,name:"Al-Anfal",ar:"الأنفال",v:75,j:9},
+  {n:9,name:"At-Tawbah",ar:"التوبة",v:129,j:10},{n:10,name:"Yunus",ar:"يونس",v:109,j:11},
+  {n:11,name:"Hud",ar:"هود",v:123,j:11},{n:12,name:"Yusuf",ar:"يوسف",v:111,j:12},
+  {n:13,name:"Ar-Ra'd",ar:"الرعد",v:43,j:13},{n:14,name:"Ibrahim",ar:"إبراهيم",v:52,j:13},
+  {n:15,name:"Al-Hijr",ar:"الحجر",v:99,j:14},{n:16,name:"An-Nahl",ar:"النحل",v:128,j:14},
+  {n:17,name:"Al-Isra",ar:"الإسراء",v:111,j:15},{n:18,name:"Al-Kahf",ar:"الكهف",v:110,j:15},
+  {n:19,name:"Maryam",ar:"مريم",v:98,j:16},{n:20,name:"Ta-Ha",ar:"طه",v:135,j:16},
+  {n:21,name:"Al-Anbiya",ar:"الأنبياء",v:112,j:17},{n:22,name:"Al-Hajj",ar:"الحج",v:78,j:17},
+  {n:23,name:"Al-Muminun",ar:"المؤمنون",v:118,j:18},{n:24,name:"An-Nur",ar:"النور",v:64,j:18},
+  {n:25,name:"Al-Furqan",ar:"الفرقان",v:77,j:18},{n:26,name:"Ash-Shu'ara",ar:"الشعراء",v:227,j:19},
+  {n:27,name:"An-Naml",ar:"النمل",v:93,j:19},{n:28,name:"Al-Qasas",ar:"القصص",v:88,j:20},
+  {n:29,name:"Al-Ankabut",ar:"العنكبوت",v:69,j:20},{n:30,name:"Ar-Rum",ar:"الروم",v:60,j:21},
+  {n:31,name:"Luqman",ar:"لقمان",v:34,j:21},{n:32,name:"As-Sajdah",ar:"السجدة",v:30,j:21},
+  {n:33,name:"Al-Ahzab",ar:"الأحزاب",v:73,j:21},{n:34,name:"Saba",ar:"سبأ",v:54,j:22},
+  {n:35,name:"Fatir",ar:"فاطر",v:45,j:22},{n:36,name:"Ya-Sin",ar:"يس",v:83,j:22},
+  {n:37,name:"As-Saffat",ar:"الصافات",v:182,j:23},{n:38,name:"Sad",ar:"ص",v:88,j:23},
+  {n:39,name:"Az-Zumar",ar:"الزمر",v:75,j:23},{n:40,name:"Ghafir",ar:"غافر",v:85,j:24},
+  {n:41,name:"Fussilat",ar:"فصلت",v:54,j:24},{n:42,name:"Ash-Shura",ar:"الشورى",v:53,j:25},
+  {n:43,name:"Az-Zukhruf",ar:"الزخرف",v:89,j:25},{n:44,name:"Ad-Dukhan",ar:"الدخان",v:59,j:25},
+  {n:45,name:"Al-Jathiyah",ar:"الجاثية",v:37,j:25},{n:46,name:"Al-Ahqaf",ar:"الأحقاف",v:35,j:26},
+  {n:47,name:"Muhammad",ar:"محمد",v:38,j:26},{n:48,name:"Al-Fath",ar:"الفتح",v:29,j:26},
+  {n:49,name:"Al-Hujurat",ar:"الحجرات",v:18,j:26},{n:50,name:"Qaf",ar:"ق",v:45,j:26},
+  {n:51,name:"Adh-Dhariyat",ar:"الذاريات",v:60,j:26},{n:52,name:"At-Tur",ar:"الطور",v:49,j:27},
+  {n:53,name:"An-Najm",ar:"النجم",v:62,j:27},{n:54,name:"Al-Qamar",ar:"القمر",v:55,j:27},
+  {n:55,name:"Ar-Rahman",ar:"الرحمن",v:78,j:27},{n:56,name:"Al-Waqi'ah",ar:"الواقعة",v:96,j:27},
+  {n:57,name:"Al-Hadid",ar:"الحديد",v:29,j:27},{n:58,name:"Al-Mujadila",ar:"المجادلة",v:22,j:28},
+  {n:59,name:"Al-Hashr",ar:"الحشر",v:24,j:28},{n:60,name:"Al-Mumtahanah",ar:"الممتحنة",v:13,j:28},
+  {n:61,name:"As-Saf",ar:"الصف",v:14,j:28},{n:62,name:"Al-Jumu'ah",ar:"الجمعة",v:11,j:28},
+  {n:63,name:"Al-Munafiqun",ar:"المنافقون",v:11,j:28},{n:64,name:"At-Taghabun",ar:"التغابن",v:18,j:28},
+  {n:65,name:"At-Talaq",ar:"الطلاق",v:12,j:28},{n:66,name:"At-Tahrim",ar:"التحريم",v:12,j:28},
+  {n:67,name:"Al-Mulk",ar:"الملك",v:30,j:29},{n:68,name:"Al-Qalam",ar:"القلم",v:52,j:29},
+  {n:69,name:"Al-Haqqah",ar:"الحاقة",v:52,j:29},{n:70,name:"Al-Ma'arij",ar:"المعارج",v:44,j:29},
+  {n:71,name:"Nuh",ar:"نوح",v:28,j:29},{n:72,name:"Al-Jinn",ar:"الجن",v:28,j:29},
+  {n:73,name:"Al-Muzzammil",ar:"المزمل",v:20,j:29},{n:74,name:"Al-Muddaththir",ar:"المدثر",v:56,j:29},
+  {n:75,name:"Al-Qiyamah",ar:"القيامة",v:40,j:29},{n:76,name:"Al-Insan",ar:"الإنسان",v:31,j:29},
+  {n:77,name:"Al-Mursalat",ar:"المرسلات",v:50,j:29},{n:78,name:"An-Naba",ar:"النبأ",v:40,j:30},
+  {n:79,name:"An-Nazi'at",ar:"النازعات",v:46,j:30},{n:80,name:"Abasa",ar:"عبس",v:42,j:30},
+  {n:81,name:"At-Takwir",ar:"التكوير",v:29,j:30},{n:82,name:"Al-Infitar",ar:"الإنفطار",v:19,j:30},
+  {n:83,name:"Al-Mutaffifin",ar:"المطففين",v:36,j:30},{n:84,name:"Al-Inshiqaq",ar:"الإنشقاق",v:25,j:30},
+  {n:85,name:"Al-Buruj",ar:"البروج",v:22,j:30},{n:86,name:"At-Tariq",ar:"الطارق",v:17,j:30},
+  {n:87,name:"Al-A'la",ar:"الأعلى",v:19,j:30},{n:88,name:"Al-Ghashiyah",ar:"الغاشية",v:26,j:30},
+  {n:89,name:"Al-Fajr",ar:"الفجر",v:30,j:30},{n:90,name:"Al-Balad",ar:"البلد",v:20,j:30},
+  {n:91,name:"Ash-Shams",ar:"الشمس",v:15,j:30},{n:92,name:"Al-Layl",ar:"الليل",v:21,j:30},
+  {n:93,name:"Ad-Duha",ar:"الضحى",v:11,j:30},{n:94,name:"Ash-Sharh",ar:"الشرح",v:8,j:30},
+  {n:95,name:"At-Tin",ar:"التين",v:8,j:30},{n:96,name:"Al-Alaq",ar:"العلق",v:19,j:30},
+  {n:97,name:"Al-Qadr",ar:"القدر",v:5,j:30},{n:98,name:"Al-Bayyinah",ar:"البينة",v:8,j:30},
+  {n:99,name:"Az-Zalzalah",ar:"الزلزلة",v:8,j:30},{n:100,name:"Al-Adiyat",ar:"العاديات",v:11,j:30},
+  {n:101,name:"Al-Qari'ah",ar:"القارعة",v:11,j:30},{n:102,name:"At-Takathur",ar:"التكاثر",v:8,j:30},
+  {n:103,name:"Al-Asr",ar:"العصر",v:3,j:30},{n:104,name:"Al-Humazah",ar:"الهمزة",v:9,j:30},
+  {n:105,name:"Al-Fil",ar:"الفيل",v:5,j:30},{n:106,name:"Quraysh",ar:"قريش",v:4,j:30},
+  {n:107,name:"Al-Ma'un",ar:"الماعون",v:7,j:30},{n:108,name:"Al-Kawthar",ar:"الكوثر",v:3,j:30},
+  {n:109,name:"Al-Kafirun",ar:"الكافرون",v:6,j:30},{n:110,name:"An-Nasr",ar:"النصر",v:3,j:30},
+  {n:111,name:"Al-Masad",ar:"المسد",v:5,j:30},{n:112,name:"Al-Ikhlas",ar:"الإخلاص",v:4,j:30},
+  {n:113,name:"Al-Falaq",ar:"الفلق",v:5,j:30},{n:114,name:"An-Nas",ar:"الناس",v:6,j:30},
+];
+
+const TOTAL_VERSES = 6236;
+const STATUS_KEYS  = ["none","learning","memorised","reviewing"];
+const STATUS_META  = {
+  none:      {label:"Not Started", color:"#e5e7eb", dot:"#9ca3af"},
+  learning:  {label:"In Progress", color:"#fef3c7", dot:"#f59e0b"},
+  memorised: {label:"Memorised",   color:"#d1fae5", dot:"#10b981"},
+  reviewing: {label:"Reviewing",   color:"#dbeafe", dot:"#3b82f6"},
+};
+
+// ── State ───────────────────────────────────────────────────────────────────
+let verseData   = {};   // verseData[surahNum][verseNum] = statusKey
+let expandedNum = null;
+let filterKey   = "all";
+let viewMode    = "list";
+let driveFileId = null;
+let gapiReady   = false;
+let gisReady    = false;
+let tokenClient = null;
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+function surahMemCount(s) {
+  const vd = verseData[s.n] || {};
+  return Object.values(vd).filter(x => x === "memorised").length;
+}
+function surahStatus(s) {
+  const vd = verseData[s.n] || {};
+  const vals = Array.from({length:s.v},(_,i)=>vd[i+1]||"none");
+  if (vals.every(x=>x==="memorised")) return "memorised";
+  if (vals.every(x=>x==="none"))      return "none";
+  if (vals.some(x=>x==="reviewing"))  return "reviewing";
+  return "learning";
+}
+function cycleStatus(cur) {
+  return STATUS_KEYS[(STATUS_KEYS.indexOf(cur)+1) % STATUS_KEYS.length];
+}
+function totalMemVerses() {
+  return SURAHS.reduce((a,s)=>a+surahMemCount(s),0);
+}
+function saveLocal() {
+  try { localStorage.setItem("quranTrackerData", JSON.stringify({verseData, driveFileId})); } catch(e){}
+}
+function loadLocal() {
+  try {
+    const raw = localStorage.getItem("quranTrackerData");
+    if (raw) { const d = JSON.parse(raw); verseData = d.verseData||{}; driveFileId = d.driveFileId||null; }
+  } catch(e){}
+}
+function setSaveStatus(msg, color="#10b981") {
+  const el = document.getElementById("save-status");
+  el.textContent = msg; el.style.color = color;
+  if (msg) setTimeout(()=>{ if(el.textContent===msg) el.textContent=""; },4000);
+}
+
+// ── Render ───────────────────────────────────────────────────────────────────
+function render() {
+  saveLocal();
+  renderHeader();
+  renderFilters();
+  renderMain();
+}
+
+function renderHeader() {
+  const mem = totalMemVerses();
+  const pct = Math.round(mem/TOTAL_VERSES*100);
+  document.getElementById("progress-bar").style.width = pct+"%";
+  document.getElementById("pl-verses").textContent = mem.toLocaleString()+" / "+TOTAL_VERSES.toLocaleString()+" verses memorised";
+  document.getElementById("pl-pct").textContent = pct+"%";
+  const comp = SURAHS.filter(s=>surahStatus(s)==="memorised").length;
+  const prog = SURAHS.filter(s=>{ const st=surahStatus(s); return st==="learning"||st==="reviewing"; }).length;
+  document.getElementById("stat-complete").textContent  = "✅ "+comp+" surahs complete";
+  document.getElementById("stat-progress").textContent  = "📖 "+prog+" in progress";
+  document.getElementById("stat-remaining").textContent = "📚 "+(114-comp-prog)+" not started";
+}
+
+function renderFilters() {
+  const wrap = document.getElementById("filter-btns");
+  wrap.innerHTML = "";
+  ["all","none","learning","memorised","reviewing"].forEach(k => {
+    const b = document.createElement("button");
+    b.className = "filter-btn"+(filterKey===k?" active":"");
+    b.textContent = k==="all" ? "All Surahs" : STATUS_META[k].label;
+    b.onclick = ()=>{ filterKey=k; render(); };
+    wrap.appendChild(b);
+  });
+}
+
+function renderMain() {
+  const main = document.getElementById("main");
+  main.innerHTML = "";
+  let list = filterKey==="all" ? SURAHS : SURAHS.filter(s=>surahStatus(s)===filterKey);
+
+  if (viewMode==="list") {
+    list.forEach(s=>main.appendChild(buildSurahCard(s)));
+  } else {
+    // group by juz
+    const groups = {};
+    list.forEach(s=>{ if(!groups[s.j]) groups[s.j]=[]; groups[s.j].push(s); });
+    Object.entries(groups).forEach(([juz,items])=>{
+      const sec = document.createElement("div");
+      sec.className = "juz-section";
+      const jMem   = items.reduce((a,s)=>a+surahMemCount(s),0);
+      const jTotal = items.reduce((a,s)=>a+s.v,0);
+      const jPct   = Math.round(jMem/jTotal*100);
+      sec.innerHTML = `<div class="juz-header">
+        <span class="juz-title">Juz ${juz}</span>
+        <span class="juz-meta">${jMem}/${jTotal} verses</span>
+        <div class="juz-bar-track"><div class="juz-bar-fill" style="width:${jPct}%"></div></div>
+        <span class="juz-pct">${jPct}%</span>
+      </div>`;
+      items.forEach(s=>sec.appendChild(buildSurahCard(s)));
+      main.appendChild(sec);
+    });
+  }
+}
+
+function buildSurahCard(s) {
+  const st      = surahStatus(s);
+  const memCnt  = surahMemCount(s);
+  const pct     = Math.round(memCnt/s.v*100);
+  const vd      = verseData[s.n] || {};
+  const learnCnt  = Object.values(vd).filter(x=>x==="learning").length;
+  const reviewCnt = Object.values(vd).filter(x=>x==="reviewing").length;
+  const expanded  = expandedNum===s.n;
+
+  const rowBg = st==="memorised"?"#d1fae5":st==="learning"?"#fef9ec":st==="reviewing"?"#eff6ff":"white";
+
+  const card = document.createElement("div");
+  card.className = "surah-card"+(expanded?" expanded":"");
+
+  // badges
+  let badges = "";
+  if (st==="memorised") badges += `<span class="surah-badge badge-complete">Complete ✓</span>`;
+  if (learnCnt>0)  badges += `<span class="surah-badge badge-learning">${learnCnt} learning</span>`;
+  if (reviewCnt>0) badges += `<span class="surah-badge badge-reviewing">${reviewCnt} reviewing</span>`;
+
+  card.innerHTML = `
+    <div class="surah-header" style="background:${rowBg}">
+      <div class="surah-num">${s.n}</div>
+      <div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <span class="surah-name">${s.name}</span>
+          <span class="surah-arabic">${s.ar}</span>
+          <span class="surah-meta">Juz ${s.j} · ${s.v} verses</span>
+          ${badges}
+        </div>
+        <div style="margin-top:5px;display:flex;align-items:center;gap:6px;">
+          <div class="mini-bar-track"><div class="mini-bar-fill" style="width:${pct}%"></div></div>
+          <span style="font-size:11px;color:#6b7280;white-space:nowrap">${memCnt}/${s.v}</span>
+        </div>
+      </div>
+      <span style="color:#6b7280;font-size:16px">${expanded?"▲":"▼"}</span>
+    </div>
+    ${expanded ? buildVersePanel(s) : ""}
+  `;
+
+  card.querySelector(".surah-header").addEventListener("click", ()=>{
+    expandedNum = expanded ? null : s.n;
+    render();
+  });
+
+  if (expanded) attachVersePanelEvents(card, s);
+  return card;
+}
+
+function buildVersePanel(s) {
+  const vd = verseData[s.n] || {};
+  // verse tiles
+  let tiles = "";
+  for (let v=1; v<=s.v; v++) {
+    const st = vd[v]||"none";
+    const {color,dot,label} = STATUS_META[st];
+    tiles += `<div class="verse-tile" data-v="${v}" title="Verse ${v}: ${label}"
+      style="background:${color};border-color:${dot}">${v}</div>`;
+  }
+  // summary
+  let summary = "";
+  Object.entries(STATUS_META).forEach(([k,m])=>{
+    const cnt = k==="none"
+      ? s.v - Object.values(vd).filter(x=>x!=="none").length
+      : Object.values(vd).filter(x=>x===k).length;
+    if (cnt>0) summary += `<span><span class="dot" style="background:${m.dot}"></span> ${cnt} ${m.label}</span>`;
+  });
+
+  return `<div class="verse-panel">
+    <div class="quick-actions">
+      <span>Mark all as:</span>
+      ${["learning","memorised","reviewing"].map(k=>`<button class="qa-btn" data-qa="${k}" style="background:${STATUS_META[k].color}">${STATUS_META[k].label}</button>`).join("")}
+      <button class="qa-btn" data-qa="none">Clear All</button>
+    </div>
+    <div class="range-row">
+      <span style="font-weight:600;color:#374151">Set range:</span>
+      <span>From</span><input type="number" id="rf-${s.n}" min="1" max="${s.v}" placeholder="1">
+      <span>to</span><input type="number" id="rt-${s.n}" min="1" max="${s.v}" placeholder="${s.v}">
+      <select id="rs-${s.n}">
+        ${STATUS_KEYS.map(k=>`<option value="${k}">${STATUS_META[k].label}</option>`).join("")}
+      </select>
+      <button class="apply-btn" id="ra-${s.n}">Apply</button>
+    </div>
+    <div class="verse-grid">${tiles}</div>
+    <div class="verse-summary">${summary}</div>
+  </div>`;
+}
+
+function attachVersePanelEvents(card, s) {
+  // verse tile clicks
+  card.querySelectorAll(".verse-tile").forEach(el=>{
+    el.addEventListener("click", e=>{
+      e.stopPropagation();
+      const v = parseInt(el.dataset.v);
+      const cur = (verseData[s.n]||{})[v]||"none";
+      if (!verseData[s.n]) verseData[s.n]={};
+      verseData[s.n][v] = cycleStatus(cur);
+      render();
+    });
+  });
+  // quick-action buttons
+  card.querySelectorAll(".qa-btn").forEach(btn=>{
+    btn.addEventListener("click", e=>{
+      e.stopPropagation();
+      const st = btn.dataset.qa;
+      if (!verseData[s.n]) verseData[s.n]={};
+      for(let v=1;v<=s.v;v++) verseData[s.n][v]=st;
+      render();
+    });
+  });
+  // range apply
+  const ra = card.querySelector(`#ra-${s.n}`);
+  if (ra) ra.addEventListener("click", e=>{
+    e.stopPropagation();
+    const f = parseInt(document.getElementById(`rf-${s.n}`).value);
+    const t = parseInt(document.getElementById(`rt-${s.n}`).value);
+    const st = document.getElementById(`rs-${s.n}`).value;
+    if (!isNaN(f)&&!isNaN(t)&&f<=t) {
+      if (!verseData[s.n]) verseData[s.n]={};
+      for(let v=Math.max(1,f);v<=Math.min(s.v,t);v++) verseData[s.n][v]=st;
+      render();
+    }
+  });
+}
+
+// ── Controls wiring ──────────────────────────────────────────────────────────
+document.getElementById("btn-view").addEventListener("click", ()=>{
+  viewMode = viewMode==="list"?"juz":"list";
+  document.getElementById("btn-view").textContent = viewMode==="list"?"📂 Group by Juz":"📋 List View";
+  render();
+});
+document.getElementById("btn-reset").addEventListener("click", ()=>{
+  if (confirm("Reset ALL memorisation data? This cannot be undone.")) {
+    verseData={}; driveFileId=null; render();
+  }
+});
+
+// ── Google Drive Integration ─────────────────────────────────────────────────
+function maybeEnableGDrive() {
+  if (!gapiReady || !gisReady) return;
+  if (CLIENT_ID==="YOUR_CLIENT_ID_HERE.apps.googleusercontent.com") {
+    document.getElementById("auth-status").textContent = "⚠️ Add your Client ID and API Key to enable Google Drive sync";
+    return;
+  }
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: CLIENT_ID,
+    scope: SCOPES,
+    callback: onTokenReceived,
+  });
+  document.getElementById("btn-signin").style.display = "";
+}
+
+function onTokenReceived(resp) {
+  if (resp.error) { console.error(resp); return; }
+  document.getElementById("auth-status").textContent = "✅ Signed in to Google Drive";
+  document.getElementById("btn-signin").style.display  = "none";
+  document.getElementById("btn-signout").style.display = "";
+  document.getElementById("btn-save").style.display    = "";
+  document.getElementById("btn-load").style.display    = "";
+}
+
+document.getElementById("btn-signin").addEventListener("click", ()=>{
+  tokenClient.requestAccessToken({prompt:"consent"});
+});
+document.getElementById("btn-signout").addEventListener("click", ()=>{
+  google.accounts.oauth2.revoke(gapi.client.getToken().access_token, ()=>{
+    gapi.client.setToken("");
+    document.getElementById("auth-status").textContent = "Not signed in — data saves to browser only";
+    document.getElementById("btn-signin").style.display  = "";
+    document.getElementById("btn-signout").style.display = "none";
+    document.getElementById("btn-save").style.display    = "none";
+    document.getElementById("btn-load").style.display    = "none";
+  });
+});
+
+async function findOrCreateFile() {
+  if (driveFileId) return driveFileId;
+  // search for existing file
+  const res = await gapi.client.drive.files.list({
+    q: `name='${FILE_NAME}' and trashed=false`,
+    spaces: "drive", fields: "files(id,name)"
+  });
+  const files = res.result.files;
+  if (files && files.length>0) { driveFileId=files[0].id; return driveFileId; }
+  // create new file
+  const meta = await gapi.client.request({
+    path:"/drive/v3/files", method:"POST",
+    body: JSON.stringify({name:FILE_NAME, mimeType:"application/json"})
+  });
+  driveFileId = meta.result.id;
+  return driveFileId;
+}
+
+document.getElementById("btn-save").addEventListener("click", async ()=>{
+  setSaveStatus("Saving…","#6b7280");
+  try {
+    const fid = await findOrCreateFile();
+    const payload = JSON.stringify({verseData, savedAt: new Date().toISOString()});
+    await gapi.client.request({
+      path:`/upload/drive/v3/files/${fid}`,
+      method:"PATCH",
+      params:{uploadType:"media"},
+      headers:{"Content-Type":"application/json"},
+      body: payload
+    });
+    saveLocal();
+    setSaveStatus("✅ Saved to Google Drive");
+  } catch(e) {
+    console.error(e);
+    setSaveStatus("❌ Save failed — check console","#dc2626");
+  }
+});
+
+document.getElementById("btn-load").addEventListener("click", async ()=>{
+  setSaveStatus("Loading…","#6b7280");
+  try {
+    const fid = await findOrCreateFile();
+    const res = await gapi.client.request({
+      path:`/drive/v3/files/${fid}`,
+      params:{alt:"media"}
+    });
+    const data = typeof res.result==="string" ? JSON.parse(res.result) : res.result;
+    if (data.verseData) { verseData=data.verseData; saveLocal(); render(); }
+    setSaveStatus("✅ Loaded from Google Drive");
+  } catch(e) {
+    console.error(e);
+    setSaveStatus("❌ Load failed — check console","#dc2626");
+  }
+});
+
+// ── Google API loaders ───────────────────────────────────────────────────────
+function gapiLoaded() {
+  gapi.load("client", async ()=>{
+    await gapi.client.init({ apiKey: API_KEY, discoveryDocs:[DISC_DOC] });
+    gapiReady = true;
+    maybeEnableGDrive();
+  });
+}
+function gisLoaded() { gisReady=true; maybeEnableGDrive(); }
+
+// ── Boot ─────────────────────────────────────────────────────────────────────
+loadLocal();
+render();
+</script>
+
+<!-- Google APIs — loaded last so page renders first -->
+<script src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
+<script src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
+</body>
+</html>
